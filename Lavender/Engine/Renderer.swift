@@ -1,10 +1,14 @@
 import MetalKit
-
+import Spatial
 class Renderer: NSObject, MTKViewDelegate {
     static var device: MTLDevice!
     static var library: MTLLibrary!
     
     static let kMaxFramesInFlight = 3
+    
+
+    var scene = LScene()
+
     
     let commandQueue: MTL4CommandQueue
     let commandAllocators: [MTL4CommandAllocator]
@@ -12,20 +16,28 @@ class Renderer: NSObject, MTKViewDelegate {
     
     let pipelineState: MTLRenderPipelineState
     
-    let argumentTable: MTL4ArgumentTable
+    let vertexArgumentTable: MTL4ArgumentTable
+    let fragmentArgumentTable: MTL4ArgumentTable
+    
     let residencySet: MTLResidencySet
     let sharedEvent: MTLSharedEvent
     
-    let triangleBuffer: MTLBuffer
-    let colorBuffer: MTLBuffer
-    
     var frameNumber: UInt64 = 0
+    var lastTime: Double = CFAbsoluteTimeGetCurrent()
+        
+    var camera = {
+        var cam = FPCamera()
+        cam.origin = .init(x: 0, y: 0, z: 3)
+        return cam
+    }()
     
+    var uniformsBuffer: DynamicBuffer<Uniforms>
     
     init(metalView: MTKView) {
         guard let device = MTLCreateSystemDefaultDevice() else {
             fatalError("No GPU Found.")
         }
+        
         
         Self.device = device
         metalView.device = device
@@ -46,16 +58,20 @@ class Renderer: NSObject, MTKViewDelegate {
         
         self.pipelineState = Self.createRenderPipelineState(withFormat: metalView.colorPixelFormat)
         
-        self.triangleBuffer = Self.createVertexBuffer()
-        self.colorBuffer = Self.createColorBuffer()
+        self.vertexArgumentTable = Self.createArgumentTable()
+        self.fragmentArgumentTable = Self.createArgumentTable()
         
-        self.argumentTable = Self.createArgumentTable()
         self.residencySet = Self.createResidencySet()
         
         self.commandAllocators = Self.createCommandAllocators()
         self.sharedEvent = Self.createSharedEvent(signaledValue: frameNumber)
         
+        self.uniformsBuffer = DynamicBuffer(maxBuffersInFlight: Self.kMaxFramesInFlight)!
+        
         super.init()
+        
+        let mesh = Mesh(polytope: .icosahedron, vertexDescriptor: .forwardPassDescriptor)
+        scene.addEntity(mesh)
         
         configureResidencySet(view: metalView)
         
@@ -76,6 +92,7 @@ class Renderer: NSObject, MTKViewDelegate {
         fragmentFunctionDescriptor.name = "fragment_main"
         
         let renderPipelineDescriptor = MTL4RenderPipelineDescriptor()
+        renderPipelineDescriptor.vertexDescriptor = .forwardPassDescriptor
         renderPipelineDescriptor.vertexFunctionDescriptor = vertexFunctionDescriptor
         renderPipelineDescriptor.fragmentFunctionDescriptor = fragmentFunctionDescriptor
         renderPipelineDescriptor.colorAttachments[0].pixelFormat = pixelFormat
@@ -88,35 +105,10 @@ class Renderer: NSObject, MTKViewDelegate {
         }
     }
     
-    static func createVertexBuffer() -> MTLBuffer {
-        var vertices: [SIMD3<Float>] = [
-            SIMD3<Float>(0, 0.5, 0),
-            SIMD3<Float>(-0.5, -0.5, 0),
-            SIMD3<Float>(0.5, -0.5, 0),
-        ]
-        let buffer = device.makeBuffer(
-            bytes: &vertices,
-            length: MemoryLayout<SIMD3<Float>>.stride * vertices.count,
-            options: [])!
-        return buffer
-    }
-    
-    static func createColorBuffer() -> MTLBuffer {
-        var colors: [SIMD3<Float>] = [
-            SIMD3<Float>(1.0, 0.0, 0.0),
-            SIMD3<Float>(0.0, 1.0, 0.0),
-            SIMD3<Float>(0.0, 0.0, 1.0),
-        ]
-        let buffer = device.makeBuffer(
-            bytes: &colors,
-            length: MemoryLayout<SIMD3<Float>>.stride * colors.count,
-            options: [])!
-        return buffer
-    }
-    
     static func createArgumentTable() -> MTL4ArgumentTable {
         let argumentTableDescriptor = MTL4ArgumentTableDescriptor()
-        argumentTableDescriptor.maxBufferBindCount = 2
+        argumentTableDescriptor.maxBufferBindCount = VertexBindPointCount.index
+        argumentTableDescriptor.maxTextureBindCount = TextureBindPointCount.index
         
         let argumentTable = try! device.makeArgumentTable(descriptor: argumentTableDescriptor)
         
@@ -144,15 +136,19 @@ class Renderer: NSObject, MTKViewDelegate {
     
     func configureResidencySet(view: MTKView) {
         commandQueue.addResidencySet(residencySet)
+        
         let viewResidency = (view.layer as? CAMetalLayer)?.residencySet
         commandQueue.addResidencySet(viewResidency!)
         
-        residencySet.addAllocation(triangleBuffer)
-        residencySet.addAllocation(colorBuffer)
+        residencySet.addAllocations(scene.resources)
+        residencySet.addAllocation(uniformsBuffer.buffer)
+     
         residencySet.commit()
     }
     
-    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) { }
+    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+        camera.processViewportResize(size: size)
+    }
     
     func draw(in view: MTKView) {
         guard let drawable = view.currentDrawable,
@@ -169,7 +165,6 @@ class Renderer: NSObject, MTKViewDelegate {
         
         let frameIndex = Int(frameNumber % UInt64(Renderer.kMaxFramesInFlight))
         let frameAllocator = commandAllocators[frameIndex]
-        
         frameAllocator.reset()
         
         commandBuffer.beginCommandBuffer(allocator: frameAllocator)
@@ -181,18 +176,58 @@ class Renderer: NSObject, MTKViewDelegate {
             return
         }
         
-        
         renderEncoder.setRenderPipelineState(pipelineState)
-        renderEncoder.setArgumentTable(argumentTable, stages: .vertex)
         
-        argumentTable.setAddress(triangleBuffer.gpuAddress, index: 0)
-        argumentTable.setAddress(colorBuffer.gpuAddress, index: 1)
+        let currentTime: Double = CFAbsoluteTimeGetCurrent()
+        let deltaTime = currentTime - lastTime
+        lastTime = currentTime
         
+        camera.processMovement(
+            movementDirections: InputHandler.Shared.extractMovement(),
+            deltaTime: deltaTime)
+ 
+        let mouseMovement = InputHandler.Shared.extractMouseMovement()
+        camera.processMouseMovement(deltaX: mouseMovement.x, deltaY: mouseMovement.y)
         
-        renderEncoder.drawPrimitives(
-            primitiveType: .triangle,
-            vertexStart: 0,
-            vertexCount: 3)
+        camera.processMouseScroll(deltaY: InputHandler.Shared.extractMouseScroll().y)
+        renderEncoder.setArgumentTable(vertexArgumentTable, stages: .vertex)
+        renderEncoder.setArgumentTable(fragmentArgumentTable, stages: .fragment)
+        renderEncoder.setTriangleFillMode(.lines)
+        
+
+        let uniforms = uniformsBuffer.bindAt(offsetIndex: frameIndex)
+        uniforms.pointee.viewMatrix = camera.viewMatrix
+        uniforms.pointee.projectionMatrix = camera.projectionMatrix
+        
+        let drawCalls = scene.renderableEntities.flatMap {$0.drawCalls()}
+        
+        for drawCall in drawCalls {
+            uniforms.pointee.modelMatrix = drawCall.modelMatrix
+            
+            vertexArgumentTable.setAddress(
+                uniformsBuffer.gpuAddressBy(offsetIndex: frameIndex),
+                index: UniformsBuffer.index)
+            
+            for (bufferIndex, vertexBuffer) in drawCall.mesh.vertexBuffers.enumerated() {
+                vertexArgumentTable.setAddress(vertexBuffer.gpuAddress, index: bufferIndex)
+            }
+            
+            for submesh in drawCall.mesh.submeshes {
+                let material = submesh.material
+                
+                if case let .texture(baseColor) = material?.baseColor {
+                    fragmentArgumentTable.setTexture(baseColor.gpuResourceID, index: BaseColor.index)
+                }
+                
+                renderEncoder.drawIndexedPrimitives(
+                    primitiveType: .triangle,
+                    indexCount: submesh.indexCount,
+                    indexType: submesh.indexType,
+                    indexBuffer: submesh.indexBuffer.gpuAddress,
+                    indexBufferLength: submesh.indexBuffer.length)
+            }
+            
+        }
         
         renderEncoder.endEncoding()
         
