@@ -1,0 +1,1 @@
+![](Lavender/Screenshots/Icosahedron.png)
