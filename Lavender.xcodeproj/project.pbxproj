@@ -10,9 +10,22 @@
 		45E972302E8AD9D800BC9FED /* Lavender.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Lavender.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		45A41FDA2E992C4300CC5B13 /* Exceptions for "Lavender" folder in "Lavender" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Screenshots/Icosahedron.png,
+			);
+			target = 45E9722F2E8AD9D800BC9FED /* Lavender */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		45E972322E8AD9D800BC9FED /* Lavender */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				45A41FDA2E992C4300CC5B13 /* Exceptions for "Lavender" folder in "Lavender" target */,
+			);
 			path = Lavender;
 			sourceTree = "<group>";
 		};

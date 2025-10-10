@@ -3,15 +3,20 @@ import Spatial
 
 
 class LScene {
-    private(set) var resources = [any MTLResource]()
     private(set) var renderableEntities: [any Renderable] = []
     
-    func addEntity(_ renderable: any Renderable) {
-        renderableEntities.append(renderable)
-        resources += renderable.resources()
+    var resources: [any MTLAllocation] {
+        renderableEntities.flatMap {$0.resources()}
     }
     
+    // quite ugly right now but enforces ResidencySet allocation
+    init(renderables: [any Renderable], renderer: Renderer) {
+        self.renderableEntities = renderables
+        renderer.residencySet.addAllocations(resources)
+        renderer.residencySet.commit()
+    }
 }
+
 
 protocol Transformable {
     var affineTransform: AffineTransform3D {get set}

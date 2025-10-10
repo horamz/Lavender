@@ -1,15 +1,11 @@
 import MetalKit
 import Spatial
 
-class Renderer: NSObject, MTKViewDelegate {
+class Renderer: NSObject {
     static var device: MTLDevice!
     static var library: MTLLibrary!
     
     static let kMaxFramesInFlight = 3
-    
-
-    var scene = LScene()
-
     
     let commandQueue: MTL4CommandQueue
     let commandAllocators: [MTL4CommandAllocator]
@@ -25,9 +21,6 @@ class Renderer: NSObject, MTKViewDelegate {
     let sharedEvent: MTLSharedEvent
     
     var frameNumber: UInt64 = 0
-    var lastTime: Double = CFAbsoluteTimeGetCurrent()
-        
-    var camera = PerspectiveResponsiveCamera()
     
     var frameConstantsBuffer: DynamicBuffer<FrameConstants>
     var instanceConstantsBuffer: DynamicBuffer<InstanceConstants>
@@ -37,8 +30,8 @@ class Renderer: NSObject, MTKViewDelegate {
             fatalError("No GPU Found.")
         }
         
-        
         Self.device = device
+        
         metalView.device = device
         
         
@@ -75,15 +68,10 @@ class Renderer: NSObject, MTKViewDelegate {
         
         super.init()
         
-    
-        let mesh = Mesh(polytope: .icosahedron, vertexDescriptor: .forwardPassDescriptor)
-        scene.addEntity(mesh)
-       
         configureResidencySet(view: metalView)
         
-        metalView.delegate = self
         metalView.clearColor =
-        MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+            MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
     }
     
     static func createRenderPipelineState(withFormat pixelFormat: MTLPixelFormat) -> MTLRenderPipelineState {
@@ -149,27 +137,27 @@ class Renderer: NSObject, MTKViewDelegate {
     
     func configureResidencySet(view: MTKView) {
         commandQueue.addResidencySet(residencySet)
-        
         let viewResidency = (view.layer as? CAMetalLayer)?.residencySet
         commandQueue.addResidencySet(viewResidency!)
         
-        residencySet.addAllocations(scene.resources)
         residencySet.addAllocation(frameConstantsBuffer.buffer)
         residencySet.addAllocation(instanceConstantsBuffer.buffer)
         residencySet.commit()
     }
     
-    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
-        camera.processViewportResize(size: size)
-    }
+    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) { }
     
-    func draw(in view: MTKView) {
+    func draw(
+        scene: LScene,
+        camera: Camera,
+        in view: MTKView)
+    {
         guard let drawable = view.currentDrawable,
             let renderPassDescriptor = view.currentMTL4RenderPassDescriptor else {
             return
         }
 
-        frameNumber += 1
+        frameNumber &+= 1
         
         if (frameNumber >= Renderer.kMaxFramesInFlight) {
             let previousValueToWaitFor = frameNumber - UInt64(Renderer.kMaxFramesInFlight)
@@ -191,23 +179,7 @@ class Renderer: NSObject, MTKViewDelegate {
         
         renderEncoder.setRenderPipelineState(pipelineState)
         renderEncoder.setDepthStencilState(depthStencilState)
-        
-        let currentTime: Double = CFAbsoluteTimeGetCurrent()
-        let deltaTime = currentTime - lastTime
-        lastTime = currentTime
-        
-        
-        camera.processMovement(
-            movementDirections: InputHandler.Shared.extractMovement(),
-            deltaTime: deltaTime)
- 
-        
-        let mouseMovement = InputHandler.Shared.extractMouseMovement()
-        camera.processMouseMovement(deltaX: mouseMovement.x, deltaY: mouseMovement.y)
-        
-        camera.processMouseScroll(deltaY: InputHandler.Shared.extractMouseScroll().y)
-         
-        
+    
         renderEncoder.setArgumentTable(vertexArgumentTable, stages: .vertex)
         renderEncoder.setArgumentTable(fragmentArgumentTable, stages: .fragment)
         renderEncoder.setTriangleFillMode(.lines)

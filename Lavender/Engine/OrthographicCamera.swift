@@ -20,30 +20,11 @@ class OrthographicCamera: Camera, OrientationVectors {
     
     
     var projectionMatrix: simd_float4x4 {
-        let halfH = Float(orthoHeight * 0.5)
-        let halfW = halfH * aspectRatio
-        
-        let l: Float = -halfW
-        let r: Float =  halfW
-        let b: Float = -halfH
-        let t: Float =  halfH
-        let n: Float = Float(nearZ)
-        let f: Float = Float(farZ)
-        
-        // DirectX/Metal-style LH ortho with z in [0,1]
-        let sx = 2.0 / (r - l)
-        let sy = 2.0 / (t - b)
-        let sz = 1.0 / (f - n)
-        let tx = (l + r) / (l - r)
-        let ty = (t + b) / (b - t)
-        let tz = n / (n - f)
-        
-        return simd_float4x4(
-            SIMD4<Float>( sx,  0,  0,  0),
-            SIMD4<Float>(  0, sy,  0,  0),
-            SIMD4<Float>(  0,  0, sz,  0),
-            SIMD4<Float>(tx, ty, tz,  1)
-        )
+        orthographicTransformLH(
+            orthoHeight: orthoHeight,
+            aspectRatio: aspectRatio,
+            nearZ: nearZ,
+            farZ: farZ)
     }
     
     func processViewportResize(size: CGSize) {

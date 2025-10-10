@@ -26,9 +26,9 @@ final class ArcballCamera: ResponsiveCamera, OrientationVectors {
     
     var projectionMatrix: simd_float4x4 {
         projectionTransformLH(fieldOfView: fieldOfView,
-                              near: nearZ,
-                              far:  farZ,
-                              aspect: aspectRatio)
+                              nearZ: nearZ,
+                              farZ:  farZ,
+                              aspectRatio: aspectRatio)
     }
     
     func processViewportResize(size: CGSize) {

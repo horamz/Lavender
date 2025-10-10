@@ -3,13 +3,13 @@ import MetalKit
 
 struct MetalView: View {
     @State private var metalView = MTKView()
-    @State private var renderer: Renderer?
+    @State private var engine: Engine?
     
     var body: some View {
         MetalViewRepresentable(
             metalView: $metalView)
         .onAppear {
-            renderer = Renderer(metalView: metalView)
+            engine = Engine(metalView: metalView)
         }
     }
 }
