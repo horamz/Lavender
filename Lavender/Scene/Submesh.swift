@@ -6,7 +6,7 @@ struct Submesh {
     let indexType: MTLIndexType
     let primitiveType: MTLPrimitiveType
     
-    let material: Material?
+    var material: Material?
     
     init(indexCount: Int,
          indexBuffer: MTLBuffer,

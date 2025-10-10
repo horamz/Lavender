@@ -11,7 +11,8 @@ typedef enum {
 
 typedef enum {
     VertexBuffer,
-    UniformsBuffer,
+    FrameConstantsBuffer,
+    InstanceConstantsBuffer,
     VertexBindPointCount
 } VertexBufferBindPoints;
 
@@ -24,8 +25,11 @@ typedef enum {
 // separate per frame and per draw structures later
 typedef struct {
     matrix_float4x4 modelMatrix;
+} InstanceConstants;
+
+typedef struct {
     matrix_float4x4 viewMatrix;
     matrix_float4x4 projectionMatrix;
-} Uniforms;
+} FrameConstants;
 
 #endif

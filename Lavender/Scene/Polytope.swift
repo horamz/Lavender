@@ -1,7 +1,7 @@
 import MetalKit
 
 enum Polytope {
-    case box, icosahedron, cone
+    case box, icosahedron, cone, plane
     
     fileprivate func createMesh() -> MDLMesh {
         let allocator = MTKMeshBufferAllocator(device: Renderer.device)
@@ -27,6 +27,12 @@ enum Polytope {
                 cap: false,
                 geometryType: .triangles,
                 allocator: allocator)
+        case .plane:
+            return MDLMesh(
+                planeWithExtent: [1,1,1],
+                segments: [30, 30],
+                geometryType: .triangles,
+                allocator: allocator)
         }
        
     }
@@ -38,5 +44,20 @@ extension Mesh {
         mdlMesh.vertexDescriptor = vertexDescriptor
         let mtkMesh = try! MTKMesh(mesh: mdlMesh, device: Renderer.device)
         self.init(mdlMesh: mdlMesh, mtkMesh: mtkMesh)
+    }
+    
+    func setTexture(name: String, type: TextureBindPoints, index: Int) {
+    
+        guard index >= 0 && index < submeshes.count else {
+            fatalError("Supplied index \(index) out of submeshes count \(submeshes.count)")
+        }
+        
+        if let texture = AssetLoader.loadTexture(sourceName: name) {
+            switch type {
+                case BaseColor:
+                submeshes[index].material?.baseColor = .texture(texture)
+                default: break
+            }
+        }
     }
 }

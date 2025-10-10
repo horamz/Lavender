@@ -5,6 +5,7 @@ class InputHandler {
     enum Settings {
         static var translationSpeed: Float { 2.0 }
         static var mouseSensitivity: Float { 0.008 }
+        static var scrollSensitivity: Float { 0.12 }
     }
     
     static let Shared = InputHandler.init()

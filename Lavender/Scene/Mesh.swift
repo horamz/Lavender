@@ -7,7 +7,7 @@ class Mesh: Transformable, Renderable {
     var name: String = "Unnamed Mesh " + UUID().uuidString.prefix(8)
     let vertexBuffers: [MTLBuffer]
     let vertexCount: Int
-    let submeshes: [Submesh]
+    var submeshes: [Submesh]
     
     init(vertexBuffers: [MTLBuffer],
          vertexCount: Int,
@@ -40,6 +40,8 @@ class Mesh: Transformable, Renderable {
         }
     }
 }
+
+
 
 
 

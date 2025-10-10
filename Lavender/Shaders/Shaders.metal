@@ -17,10 +17,13 @@ struct RasterizerData {
 
 vertex RasterizerData vertex_main(
     VertexIn in [[stage_in]],
-    constant Uniforms& uniforms [[buffer(UniformsBuffer)]])
+    constant FrameConstants& frameConstants [[buffer(FrameConstantsBuffer)]],
+    constant InstanceConstants& instanceConstants [[buffer(InstanceConstantsBuffer)]])
 {
     return RasterizerData {
-        .position = uniforms.projectionMatrix * uniforms.viewMatrix * uniforms.modelMatrix * float4(in.position, 1.0),
+        .position = frameConstants.projectionMatrix *
+            frameConstants.viewMatrix *
+            instanceConstants.modelMatrix * float4(in.position, 1.0),
         .uv = in.uv
     };
 }
@@ -37,7 +40,7 @@ fragment float4 fragment_main(
         address::repeat);
     
     float3 color = baseColorTexture.sample(s, in.uv).rgb;
-     */
+    */
     return float4(1.0);
 }
 

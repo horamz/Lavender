@@ -1,5 +1,6 @@
 import MetalKit
 import Spatial
+
 class Renderer: NSObject, MTKViewDelegate {
     static var device: MTLDevice!
     static var library: MTLLibrary!
@@ -15,6 +16,7 @@ class Renderer: NSObject, MTKViewDelegate {
     let commandBuffer: MTL4CommandBuffer
     
     let pipelineState: MTLRenderPipelineState
+    let depthStencilState: MTLDepthStencilState
     
     let vertexArgumentTable: MTL4ArgumentTable
     let fragmentArgumentTable: MTL4ArgumentTable
@@ -25,13 +27,10 @@ class Renderer: NSObject, MTKViewDelegate {
     var frameNumber: UInt64 = 0
     var lastTime: Double = CFAbsoluteTimeGetCurrent()
         
-    var camera = {
-        var cam = FPCamera()
-        cam.origin = .init(x: 0, y: 0, z: 3)
-        return cam
-    }()
+    var camera = PerspectiveResponsiveCamera()
     
-    var uniformsBuffer: DynamicBuffer<Uniforms>
+    var frameConstantsBuffer: DynamicBuffer<FrameConstants>
+    var instanceConstantsBuffer: DynamicBuffer<InstanceConstants>
     
     init(metalView: MTKView) {
         guard let device = MTLCreateSystemDefaultDevice() else {
@@ -57,6 +56,7 @@ class Renderer: NSObject, MTKViewDelegate {
         Self.library = lib
         
         self.pipelineState = Self.createRenderPipelineState(withFormat: metalView.colorPixelFormat)
+        self.depthStencilState = Self.createDepthStencilState()!
         
         self.vertexArgumentTable = Self.createArgumentTable()
         self.fragmentArgumentTable = Self.createArgumentTable()
@@ -66,13 +66,19 @@ class Renderer: NSObject, MTKViewDelegate {
         self.commandAllocators = Self.createCommandAllocators()
         self.sharedEvent = Self.createSharedEvent(signaledValue: frameNumber)
         
-        self.uniformsBuffer = DynamicBuffer(maxBuffersInFlight: Self.kMaxFramesInFlight)!
+        self.frameConstantsBuffer = DynamicBuffer(maxBuffersInFlight: Self.kMaxFramesInFlight, scope: .perFrame)!
+        
+        // TODO: Make per instance buffer resizable based on draw calls
+        self.instanceConstantsBuffer = DynamicBuffer(
+            maxBuffersInFlight: Self.kMaxFramesInFlight,
+            scope:.perInstance(kMaxDrawsPerFrame: 1024))!
         
         super.init()
         
+    
         let mesh = Mesh(polytope: .icosahedron, vertexDescriptor: .forwardPassDescriptor)
         scene.addEntity(mesh)
-        
+       
         configureResidencySet(view: metalView)
         
         metalView.delegate = self
@@ -103,6 +109,13 @@ class Renderer: NSObject, MTKViewDelegate {
         } catch {
             fatalError(error.localizedDescription)
         }
+    }
+    
+    static func createDepthStencilState() -> MTLDepthStencilState? {
+        let depthStencilDescriptor = MTLDepthStencilDescriptor()
+        depthStencilDescriptor.isDepthWriteEnabled = true
+        depthStencilDescriptor.depthCompareFunction = .less
+        return Renderer.device.makeDepthStencilState(descriptor: depthStencilDescriptor)
     }
     
     static func createArgumentTable() -> MTL4ArgumentTable {
@@ -141,8 +154,8 @@ class Renderer: NSObject, MTKViewDelegate {
         commandQueue.addResidencySet(viewResidency!)
         
         residencySet.addAllocations(scene.resources)
-        residencySet.addAllocation(uniformsBuffer.buffer)
-     
+        residencySet.addAllocation(frameConstantsBuffer.buffer)
+        residencySet.addAllocation(instanceConstantsBuffer.buffer)
         residencySet.commit()
     }
     
@@ -177,36 +190,49 @@ class Renderer: NSObject, MTKViewDelegate {
         }
         
         renderEncoder.setRenderPipelineState(pipelineState)
+        renderEncoder.setDepthStencilState(depthStencilState)
         
         let currentTime: Double = CFAbsoluteTimeGetCurrent()
         let deltaTime = currentTime - lastTime
         lastTime = currentTime
         
+        
         camera.processMovement(
             movementDirections: InputHandler.Shared.extractMovement(),
             deltaTime: deltaTime)
  
+        
         let mouseMovement = InputHandler.Shared.extractMouseMovement()
         camera.processMouseMovement(deltaX: mouseMovement.x, deltaY: mouseMovement.y)
         
         camera.processMouseScroll(deltaY: InputHandler.Shared.extractMouseScroll().y)
+         
+        
         renderEncoder.setArgumentTable(vertexArgumentTable, stages: .vertex)
         renderEncoder.setArgumentTable(fragmentArgumentTable, stages: .fragment)
         renderEncoder.setTriangleFillMode(.lines)
         
 
-        let uniforms = uniformsBuffer.bindAt(offsetIndex: frameIndex)
-        uniforms.pointee.viewMatrix = camera.viewMatrix
-        uniforms.pointee.projectionMatrix = camera.projectionMatrix
+        let frameConstants = frameConstantsBuffer.bindAt(slice: .init(frameIndex: frameIndex))
+      
+        frameConstants.pointee.viewMatrix = camera.viewMatrix
+        frameConstants.pointee.projectionMatrix = camera.projectionMatrix
+        
+        vertexArgumentTable.setAddress(
+            frameConstantsBuffer.gpuAddressAt(slice: .init(frameIndex: frameIndex)),
+            index: FrameConstantsBuffer.index)
         
         let drawCalls = scene.renderableEntities.flatMap {$0.drawCalls()}
         
-        for drawCall in drawCalls {
-            uniforms.pointee.modelMatrix = drawCall.modelMatrix
+        for (instanceIndex, drawCall) in drawCalls.enumerated() {
+            
+            let instanceConstants = instanceConstantsBuffer.bindAt(
+                slice: .init(frameIndex: frameIndex, instanceIndex: instanceIndex))
+            
+            instanceConstants.pointee.modelMatrix = drawCall.modelMatrix
             
             vertexArgumentTable.setAddress(
-                uniformsBuffer.gpuAddressBy(offsetIndex: frameIndex),
-                index: UniformsBuffer.index)
+                instanceConstantsBuffer.gpuAddressAt(slice: .init(frameIndex: frameIndex, instanceIndex: instanceIndex)), index: InstanceConstantsBuffer.index)
             
             for (bufferIndex, vertexBuffer) in drawCall.mesh.vertexBuffers.enumerated() {
                 vertexArgumentTable.setAddress(vertexBuffer.gpuAddress, index: bufferIndex)

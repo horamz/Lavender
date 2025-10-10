@@ -34,20 +34,20 @@ class AssetLoader {
       return texture
     }
 
-    static func loadTexture(name: String) -> MTLTexture? {
-      if let texture = textureAssets[name] {
+    static func loadTexture(sourceName: String) -> MTLTexture? {
+      if let texture = textureAssets[sourceName] {
         return texture
       }
       let textureLoader = MTKTextureLoader(device: Renderer.device)
       let texture: MTLTexture?
       texture = try? textureLoader.newTexture(
-        name: name,
+        name: sourceName,
         scaleFactor: 1.0,
         bundle: Bundle.main,
         options: nil)
       if texture != nil {
-        print("loaded texture: \(name)")
-        textureAssets[name] = texture
+        print("Loaded texture: \(sourceName)")
+        textureAssets[sourceName] = texture
       }
       return texture
     }
