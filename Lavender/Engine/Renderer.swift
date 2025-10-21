@@ -25,6 +25,8 @@ class Renderer: NSObject {
     var frameConstantsBuffer: DynamicBuffer<FrameConstants>
     var instanceConstantsBuffer: DynamicBuffer<InstanceConstants>
     
+    var materialsBuffer: StaticBuffer<MaterialArguments>
+    
     init(metalView: MTKView) {
         guard let device = MTLCreateSystemDefaultDevice() else {
             fatalError("No GPU Found.")
@@ -59,12 +61,15 @@ class Renderer: NSObject {
         self.commandAllocators = Self.createCommandAllocators()
         self.sharedEvent = Self.createSharedEvent(signaledValue: frameNumber)
         
-        self.frameConstantsBuffer = DynamicBuffer(maxBuffersInFlight: Self.kMaxFramesInFlight, scope: .perFrame)!
+        self.frameConstantsBuffer = DynamicBuffer(maxBuffersInFlight: Self.kMaxFramesInFlight, scope: .perFrame, count: 1)!
         
         // TODO: Make per instance buffer resizable based on draw calls
         self.instanceConstantsBuffer = DynamicBuffer(
             maxBuffersInFlight: Self.kMaxFramesInFlight,
-            scope:.perInstance(kMaxDrawsPerFrame: 1024))!
+            scope:.perInstance(kMaxDrawsPerFrame: 128 * 1_024),
+            count: 1)!
+        
+        self.materialsBuffer = StaticBuffer(count: 128)
         
         super.init()
         
@@ -107,9 +112,10 @@ class Renderer: NSObject {
     }
     
     static func createArgumentTable() -> MTL4ArgumentTable {
+        // TODO: This is ughhhhhhhh so unclean
         let argumentTableDescriptor = MTL4ArgumentTableDescriptor()
-        argumentTableDescriptor.maxBufferBindCount = VertexBindPointCount.index
-        argumentTableDescriptor.maxTextureBindCount = TextureBindPointCount.index
+        argumentTableDescriptor.maxBufferBindCount = max(VertexBindPointCount.index, FragmentBindPointCount.index)
+        argumentTableDescriptor.maxTextureBindCount = 10
         
         let argumentTable = try! device.makeArgumentTable(descriptor: argumentTableDescriptor)
         
@@ -140,8 +146,8 @@ class Renderer: NSObject {
         let viewResidency = (view.layer as? CAMetalLayer)?.residencySet
         commandQueue.addResidencySet(viewResidency!)
         
-        residencySet.addAllocation(frameConstantsBuffer.buffer)
-        residencySet.addAllocation(instanceConstantsBuffer.buffer)
+        residencySet.addAllocations(frameConstantsBuffer.buffers)
+        residencySet.addAllocations(instanceConstantsBuffer.buffers)
         residencySet.commit()
     }
     
@@ -182,39 +188,42 @@ class Renderer: NSObject {
     
         renderEncoder.setArgumentTable(vertexArgumentTable, stages: .vertex)
         renderEncoder.setArgumentTable(fragmentArgumentTable, stages: .fragment)
-        renderEncoder.setTriangleFillMode(.lines)
+        renderEncoder.setTriangleFillMode(.fill)
         
 
-        let frameConstants = frameConstantsBuffer.bindAt(slice: .init(frameIndex: frameIndex))
+        let frameConstantsPtr = frameConstantsBuffer.bindAt(slice: .init(frameIndex: frameIndex), offsetIndex: 0)
       
-        frameConstants.pointee.viewMatrix = camera.viewMatrix
-        frameConstants.pointee.projectionMatrix = camera.projectionMatrix
+        frameConstantsPtr.pointee.viewMatrix = camera.viewMatrix
+        frameConstantsPtr.pointee.projectionMatrix = camera.projectionMatrix
         
         vertexArgumentTable.setAddress(
-            frameConstantsBuffer.gpuAddressAt(slice: .init(frameIndex: frameIndex)),
+            frameConstantsBuffer.gpuAddressAt(slice: .init(frameIndex: frameIndex), offsetIndex: 0),
             index: FrameConstantsBuffer.index)
         
         let drawCalls = scene.renderableEntities.flatMap {$0.drawCalls()}
         
         for (instanceIndex, drawCall) in drawCalls.enumerated() {
             
-            let instanceConstants = instanceConstantsBuffer.bindAt(
-                slice: .init(frameIndex: frameIndex, instanceIndex: instanceIndex))
+            let instanceConstantsPtr = instanceConstantsBuffer.bindAt(
+                slice: .init(frameIndex: frameIndex, instanceIndex: instanceIndex), offsetIndex: 0)
             
-            instanceConstants.pointee.modelMatrix = drawCall.modelMatrix
+            instanceConstantsPtr.pointee.modelMatrix = drawCall.modelMatrix
             
             vertexArgumentTable.setAddress(
-                instanceConstantsBuffer.gpuAddressAt(slice: .init(frameIndex: frameIndex, instanceIndex: instanceIndex)), index: InstanceConstantsBuffer.index)
+                instanceConstantsBuffer.gpuAddressAt(slice: .init(frameIndex: frameIndex, instanceIndex: instanceIndex), offsetIndex: 0), index: InstanceConstantsBuffer.index)
             
             for (bufferIndex, vertexBuffer) in drawCall.mesh.vertexBuffers.enumerated() {
                 vertexArgumentTable.setAddress(vertexBuffer.gpuAddress, index: bufferIndex)
             }
             
+   
             for submesh in drawCall.mesh.submeshes {
-                let material = submesh.material
                 
-                if case let .texture(baseColor) = material?.baseColor {
-                    fragmentArgumentTable.setTexture(baseColor.gpuResourceID, index: BaseColor.index)
+                if let materialView = drawCall.mesh
+                    .materials[submesh.materialIndex].bufferView {
+                    fragmentArgumentTable.setAddress(
+                        materialView.gpuAddress,
+                        index: MaterialBuffer.index)
                 }
                 
                 renderEncoder.drawIndexedPrimitives(

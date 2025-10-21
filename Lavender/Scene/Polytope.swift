@@ -46,7 +46,11 @@ extension Mesh {
         self.init(mdlMesh: mdlMesh, mtkMesh: mtkMesh)
     }
     
-    func setTexture(name: String, type: TextureBindPoints, index: Int) {
+    enum TextureType {
+        case baseColor
+    }
+    
+    func setTexture(name: String, type: TextureType, index: Int) {
     
         guard index >= 0 && index < submeshes.count else {
             fatalError("Supplied index \(index) out of submeshes count \(submeshes.count)")
@@ -54,9 +58,9 @@ extension Mesh {
         
         if let texture = AssetLoader.loadTexture(sourceName: name) {
             switch type {
-                case BaseColor:
-                submeshes[index].material?.baseColor = .texture(texture)
-                default: break
+            case .baseColor:
+                materials.append(Material(baseColor: .init(factor: [1, 1, 1], texture: texture)))
+                submeshes[0].materialIndex = materials.count - 1
             }
         }
     }

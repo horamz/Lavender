@@ -1,4 +1,5 @@
 import MetalKit
+import Spatial
 
 class Engine: NSObject {
     var scene: LScene
@@ -10,9 +11,25 @@ class Engine: NSObject {
     
     init(metalView: MTKView) {
         renderer = Renderer(metalView: metalView)
+      
+        //let mesh = Mesh(polytope: .icosahedron, vertexDescriptor: .forwardPassDescriptor)
         
-        let mesh = Mesh(polytope: .icosahedron, vertexDescriptor: .forwardPassDescriptor)
-        scene = .init(renderables: [mesh], renderer: renderer)
+        
+        let house = try! AssetLoader.loadModel(url: Bundle.main.url(forResource: "lowpoly-house", withExtension: "usdz")!, device: Renderer.device)
+        let frank = try! AssetLoader.loadModel(url: Bundle.main.url(forResource: "Frank", withExtension: "usdz")!, device: Renderer.device)
+        frank.affineTransform.scale(by: .init(vector: [0.05, 0.05, 0.05]))
+        frank.affineTransform.translated(by: Vector3D.init(vector: simd_double3(x: 10, y: 0, z: 0)))
+        
+        /*
+        let lobby = try! AssetLoader.loadModel(url: Bundle.main.url(forResource: "supermarket", withExtension: "usdz")!, device: Renderer.device)
+        lobby.affineTransform.scale(by: .init(vector: [0.001, 0.001, 0.001]))
+        */
+        
+        let sphere = try! AssetLoader.loadModel(url: Bundle.main.url(forResource: "final-sphere", withExtension: "usdz")!, device: Renderer.device)
+        //sphere.affineTransform.scale(by: .init(vector: [2,1,1]))
+        //sphere.affineTransform.translate(by: Vector3D.init(vector: [3,0,0]))
+        
+        scene = .init(renderables: [sphere], renderer: renderer)
      
         camera = PerspectiveResponsiveCamera()
         

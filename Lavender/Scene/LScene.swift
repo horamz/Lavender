@@ -1,7 +1,6 @@
 import MetalKit
 import Spatial
 
-
 class LScene {
     private(set) var renderableEntities: [any Renderable] = []
     
@@ -9,11 +8,31 @@ class LScene {
         renderableEntities.flatMap {$0.resources()}
     }
     
-    // quite ugly right now but enforces ResidencySet allocation
+ 
     init(renderables: [any Renderable], renderer: Renderer) {
         self.renderableEntities = renderables
-        renderer.residencySet.addAllocations(resources)
-        renderer.residencySet.commit()
+        makeResourcesResident(
+            residencySet: renderer.residencySet,
+            materialsBuffer: renderer.materialsBuffer)
+    }
+    
+    func makeResourcesResident(
+        residencySet: MTLResidencySet,
+        materialsBuffer: StaticBuffer<MaterialArguments>)
+    {
+        residencySet.addAllocations(resources)
+        
+        renderableEntities
+            .flatMap {$0.drawCalls()}
+            .map(\.mesh)
+            .flatMap(\.materials)
+            .enumerated()
+            .forEach {(matIndex, material) in
+                let materialArgs = material.asShaderArguments()
+                material.bufferView = materialsBuffer.write(materialArgs, at: matIndex)
+            }
+        residencySet.addAllocation(materialsBuffer.buffer)
+        residencySet.commit()
     }
 }
 
@@ -33,7 +52,11 @@ struct DrawCall {
     var modelMatrix: simd_float4x4
 }
 
-protocol Renderable {
-    func drawCalls() -> [DrawCall]
+protocol Resident {
     func resources() -> [any MTLResource]
+}
+
+protocol Renderable: Resident {
+    func drawCalls() -> [DrawCall]
+    
 }

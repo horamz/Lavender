@@ -28,19 +28,30 @@ vertex RasterizerData vertex_main(
     };
 }
 
+
+struct Material {
+    MaterialFactors factors;
+    texture2d<float, access::sample> baseColorTexture;
+    texture2d<float, access::sample> roughnessTexture;
+    texture2d<float, access::sample> metalnessTexture;
+    texture2d<float, access::sample> normalTexture;
+    texture2d<float, access::sample> occlusionTexture;
+    texture2d<float, access::sample> opacityTexture;
+    texture2d<float, access::sample> emissionTexture;
+};
+
 fragment float4 fragment_main(
     RasterizerData in [[stage_in]],
-    texture2d<float> baseColorTexture [[texture(BaseColor)]])
+    constant Material& material [[buffer(MaterialBuffer)]])
 {
-    /*
     constexpr sampler s(
         filter::linear,
         mip_filter::linear,
         max_anisotropy(8),
         address::repeat);
     
-    float3 color = baseColorTexture.sample(s, in.uv).rgb;
-    */
-    return float4(1.0);
+    float3 color = material.baseColorTexture.sample(s, in.uv).rgb;
+    return float4(color, 1.0);
+    //return float4(1.0, 0.0, 0.0, 1.0);
 }
 

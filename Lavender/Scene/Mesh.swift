@@ -6,26 +6,41 @@ class Mesh: Transformable, Renderable {
     var affineTransform: AffineTransform3D = .identity
     var name: String = "Unnamed Mesh " + UUID().uuidString.prefix(8)
     let vertexBuffers: [MTLBuffer]
+    let vertexDescriptor: MDLVertexDescriptor
     let vertexCount: Int
     var submeshes: [Submesh]
+    var materials: [Material]
     
     init(vertexBuffers: [MTLBuffer],
+         vertexDescriptor: MDLVertexDescriptor,
          vertexCount: Int,
-         submeshes: [Submesh])
+         submeshes: [Submesh],
+         materials: [Material])
     {
         self.vertexBuffers = vertexBuffers
+        self.vertexDescriptor = vertexDescriptor
         self.vertexCount = vertexCount
         self.submeshes = submeshes
+        self.materials = materials
     }
     
     convenience init(mdlMesh: MDLMesh, mtkMesh: MTKMesh) {
         let vertexBuffers = mtkMesh.vertexBuffers.map {$0.buffer}
+        let mdlSubmeshes = mdlMesh.submeshes!.map {$0 as! MDLSubmesh}
         let submeshes
-            = zip(mdlMesh.submeshes!.map {$0 as! MDLSubmesh},
-                mtkMesh.submeshes).map {mesh in
-                    Submesh(mdlSubmesh: mesh.0, mtkSubmesh: mesh.1)
-                }
-        self.init(vertexBuffers: vertexBuffers, vertexCount: mtkMesh.vertexCount, submeshes: submeshes)
+        = zip(mdlSubmeshes, mtkMesh.submeshes.enumerated()).map {(mdlSub, mtkSubEnumerated) in
+            let (materialIndex, mtkSub) = mtkSubEnumerated
+            return Submesh(mdlSubmesh: mdlSub, mtkSubmesh: mtkSub, materialIndex: materialIndex)
+        }
+        
+        let materials = mdlSubmeshes.compactMap {$0.material?.extractMaterial()}
+        
+        self.init(
+            vertexBuffers: vertexBuffers,
+            vertexDescriptor: mdlMesh.vertexDescriptor,
+            vertexCount: mtkMesh.vertexCount,
+            submeshes: submeshes,
+            materials: materials)
     }
     
     func drawCalls() -> [DrawCall] {
@@ -34,10 +49,8 @@ class Mesh: Transformable, Renderable {
     }
     
     func resources() -> [any MTLResource] {
-        vertexBuffers + submeshes.flatMap { submesh -> [any MTLResource] in
-            [submesh.indexBuffer] +
-            [submesh.material?.baseColor.textureValue].compactMap { $0 }
-        }
+        vertexBuffers + submeshes.flatMap { submesh in [submesh.indexBuffer] }
+        + materials.flatMap {$0.resources()}
     }
 }
 
